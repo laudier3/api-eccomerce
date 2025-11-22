@@ -1,0 +1,290 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//
+// ====================================================================
+//  USERS — Usuários do sistema (clientes e administradores)
+// ====================================================================
+model User {
+  id        String   @id @default(cuid()) // Identificador único
+  name      String                            // Nome do usuário
+  email     String   @unique                  // Email único
+  password  String                            // Senha hash
+  role      UserRole @default(CUSTOMER)       // Permissão/nível do usuário
+  createdAt DateTime @default(now())          // Data de criação
+  updatedAt DateTime @updatedAt               // Atualizado automaticamente
+
+  addresses Address[]    // Endereços do usuário
+  orders    Order[]       // Pedidos realizados
+  cart      Cart?         // Carrinho (1 por usuário)
+  reviews   Review[]      // Avaliações feitas
+  wishlist  Wishlist?     // Lista de desejos (1 por usuário)
+}
+
+enum UserRole {
+  ADMIN     // Administrador
+  CUSTOMER  // Cliente comum
+}
+
+//
+// ====================================================================
+//  ADDRESS — Endereços do cliente
+// ====================================================================
+model Address {
+  id         String   @id @default(cuid())
+  userId     String                         // FK User
+  user       User     @relation(fields: [userId], references: [id])
+
+  street     String                          // Rua
+  number     String                          // Número
+  complement String?                         // Complemento
+  district   String                          // Bairro
+  city       String                          // Cidade
+  state      String                          // Estado
+  zipCode    String                          // CEP
+
+  isDefault  Boolean  @default(false)        // Indica se é o endereço principal
+  createdAt  DateTime @default(now())
+
+  orders Order[]                             // Pedidos enviados pra esse endereço
+}
+
+//
+// ====================================================================
+//  CATEGORY — Categorias e subcategorias
+// ====================================================================
+model Category {
+  id        String     @id @default(cuid())
+  name      String                                // Nome (Ex: Eletrônicos)
+  slug      String     @unique                    // URL amigável
+  parentId  String?
+  parent    Category?  @relation("Subcategories", fields: [parentId], references: [id])
+  children  Category[] @relation("Subcategories") // Subcategorias
+  products  Product[]                             // Produtos da categoria
+  createdAt DateTime   @default(now())
+}
+
+//
+// ====================================================================
+//  PRODUCT — Produto principal
+// ====================================================================
+model Product {
+  id            String   @id @default(cuid())
+  name          String                              // Nome do produto
+  slug          String   @unique                    // URL única
+  description   String?                             // Descrição completa
+  price         Decimal  @db.Decimal(10, 2)         // Preço base
+  discount      Decimal? @db.Decimal(10, 2)         // Desconto opcional
+  sku           String?  @unique                    // SKU do produto
+  categoryId    String                              
+  category      Category @relation(fields: [categoryId], references: [id])
+
+  images      ProductImage[]       // Galeria
+  variations  ProductVariation[]   // Tamanhos / cores
+  stock       Stock?                // Estoque único
+  reviews     Review[]             // Avaliações de clientes
+  cartItems   CartItem[]           // Itens no carrinho
+  orderItems  OrderItem[]          // Itens comprados
+
+  wishlistItems WishlistItem[]     // Produtos adicionados à wishlist
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+//
+// ====================================================================
+//  PRODUCT IMAGE — Imagens do produto
+// ====================================================================
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String                          // FK Product
+  url       String                          // Link da imagem
+  product   Product @relation(fields: [productId], references: [id])
+}
+
+//
+// ====================================================================
+//  PRODUCT VARIATION — Tamanhos / cores / modelos
+// ====================================================================
+model ProductVariation {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  name      String           // Nome da variação (ex: Tamanho)
+  value     String           // Valor (ex: M)
+  price     Decimal? @db.Decimal(10, 2)  // Preço diferenciado
+  stockQty  Int?             // Estoque específico dessa variação
+
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+}
+
+//
+// ====================================================================
+//  STOCK — Controle de estoque principal
+// ====================================================================
+model Stock {
+  id        String   @id @default(cuid())
+  productId String   @unique                // Produto único
+  product   Product  @relation(fields: [productId], references: [id])
+  quantity  Int                              // Quantidade em estoque
+  updatedAt DateTime @updatedAt              // Atualizacao automática
+}
+
+//
+// ====================================================================
+//  CART — Carrinho de compras
+// ====================================================================
+model Cart {
+  id        String     @id @default(cuid())
+  userId    String     @unique
+  user      User       @relation(fields: [userId], references: [id])
+  items     CartItem[]                   // Itens do carrinho
+  updatedAt DateTime @updatedAt
+}
+
+model CartItem {
+  id          String            @id @default(cuid())
+  cartId      String
+  productId   String
+  variationId String?
+  quantity    Int               // Quantidade selecionada
+
+  product     Product           @relation(fields: [productId], references: [id])
+  variation   ProductVariation? @relation(fields: [variationId], references: [id])
+  cart        Cart              @relation(fields: [cartId], references: [id])
+}
+
+//
+// ====================================================================
+//  ORDER — Pedidos realizados
+// ====================================================================
+model Order {
+  id        String      @id @default(cuid())
+  userId    String  
+  addressId String
+  status    OrderStatus @default(PENDING)       // Status do pedido
+  total     Decimal     @db.Decimal(10, 2)      // Total do pedido
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id])
+  address Address @relation(fields: [addressId], references: [id])
+  items   OrderItem[]     // Itens comprados
+  payment Payment?        // Pagamento do pedido
+}
+
+enum OrderStatus {
+  PENDING        // Aguardando pagamento
+  PAID           // Pago
+  SHIPPED        // Enviado
+  DELIVERED      // Entregue
+  CANCELED       // Cancelado
+}
+
+//
+// ====================================================================
+//  ORDER ITEM — Itens que compõem o pedido
+// ====================================================================
+model OrderItem {
+  id          String  @id @default(cuid())
+  orderId     String
+  productId   String
+  variationId String?
+  quantity    Int
+  price       Decimal @db.Decimal(10, 2)   // Preço no momento da compra
+
+  order     Order             @relation(fields: [orderId], references: [id])
+  product   Product           @relation(fields: [productId], references: [id])
+  variation ProductVariation? @relation(fields: [variationId], references: [id])
+}
+
+//
+// ====================================================================
+//  PAYMENT — Pagamento dos pedidos
+// ====================================================================
+model Payment {
+  id            String        @id @default(cuid())
+  orderId       String        @unique                 // 1 pedido = 1 pagamento
+  method        PaymentMethod                        // PIX, Cartão, Boleto
+  status        PaymentStatus @default(PENDING)
+  transactionId String?                            // ID da transação (gateway)
+  amount        Decimal       @db.Decimal(10, 2)
+  createdAt     DateTime      @default(now())
+
+  order Order @relation(fields: [orderId], references: [id])
+}
+
+enum PaymentMethod {
+  PIX
+  CREDIT_CARD
+  BOLETO
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+//
+// ====================================================================
+//  REVIEW — Avaliações dos produtos
+// ====================================================================
+model Review {
+  id        String   @id @default(cuid())
+  productId String
+  userId    String
+  rating    Int               // Nota (1-5)
+  comment   String?           // Comentário opcional
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+}
+
+//
+// ====================================================================
+//  LOGS — Registros internos do sistema
+// ====================================================================
+model Log {
+  id        String   @id @default(cuid())
+  message   String            // Mensagem do log
+  level     LogLevel          // Nível (INFO, WARN, ERROR)
+  createdAt DateTime @default(now())
+}
+
+enum LogLevel {
+  INFO
+  WARN
+  ERROR
+}
+
+//
+// ====================================================================
+//  WISHLIST — Lista de desejos
+// ====================================================================
+model Wishlist {
+  id        String         @id @default(cuid())
+  userId    String         @unique      // Cada usuário tem 1 wishlist
+  user      User           @relation(fields: [userId], references: [id])
+  items     WishlistItem[]              // Itens vinculados
+  createdAt DateTime       @default(now())
+}
+
+model WishlistItem {
+  id         String   @id @default(cuid())
+  wishlistId String
+  productId  String
+
+  product    Product  @relation(fields: [productId], references: [id])
+  wishlist   Wishlist @relation(fields: [wishlistId], references: [id])
+}
